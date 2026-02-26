@@ -1,0 +1,51 @@
+// Yer: backend/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Taramaları tutan ana tablo (Örn: 17 Şubat Taraması)
+model ScanHistory {
+  id        String   @id @default(uuid())
+  startedAt DateTime @default(now())
+  status    String   // "COMPLETED", "FAILED", "SCANNING"
+  
+  // İlişkiler
+  apps      DiscoveredApp[]
+}
+
+// Taranan ve bulunan uygulamalar
+model DiscoveredApp {
+  id          String   @id @default(uuid())
+  name        String
+  version     String
+  vendor      String?
+  path        String?  // Opsiyonel: Eklemediysen hata verebilir, kontrol et
+  cpeString   String?  // Opsiyonel
+  scanId      String
+  scan        ScanHistory @relation(fields: [scanId], references: [id])
+  vulnerabilities Vulnerability[]
+
+  // GÜNCELLENEN SATIR: scanId çıkarıldı. Artık uygulama sadece isim+versiyon ile benzersiz.
+  @@unique([name, version], name: "app_unique")
+}
+
+// Zafiyet detayları (CVE verileri)
+model Vulnerability {
+  id          String   @id @default(uuid())
+  cveId       String
+  description String?
+  severity    String?
+  score       Float?
+  publishedAt DateTime?
+  appId       String
+  app         DiscoveredApp @relation(fields: [appId], references: [id])
+
+  // 'upsert' için bu ismi kullanacağız
+  @@unique([cveId, appId], name: "cve_app_unique")
+}
