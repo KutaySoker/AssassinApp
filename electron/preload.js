@@ -1,12 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Tarama Başlat
+  // Senin Mevcut API Görevlerin
   startScan: () => ipcRenderer.invoke('scan:start'),
-  
-  // Geçmişi Getir
   getHistory: () => ipcRenderer.invoke('scan:history'),
-  
-  // Detay Getir
-  getDetails: (scanId) => ipcRenderer.invoke('scan:details', scanId)
+  getDetails: (scanId) => ipcRenderer.invoke('scan:details', scanId),
+
+  // YENİ EKLENEN: Siberpunk Pencere Butonları İçin Köprüler
+  minimize: () => ipcRenderer.send('window-minimize'),
+  maximize: () => ipcRenderer.send('window-maximize'),
+  close: () => ipcRenderer.send('window-close')
 });

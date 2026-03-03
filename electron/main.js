@@ -2,24 +2,50 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { setupIpcHandlers } = require('./ipcManager');
 
+// Pencereyi dışarıda tanımlıyoruz ki aşağıdaki kapat/küçült butonları erişebilsin
+let mainWindow;
+
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    frame: false, // Çerçeve gitti
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'), // Preload burada
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
 
-  // BURAYI DEĞİŞTİRDİK: Geliştirme aşamasında olduğumuz için direkt URL'i veriyoruz.
-  // React (Vite) varsayılan olarak 5173 portunda çalışır.
+  // O klasik, sıkıcı "File, Edit, View" menüsünü (Toolbox) siliyoruz!
+  mainWindow.removeMenu();
+
+  // Geliştirme aşamasında olduğumuz için direkt URL'i veriyoruz.
   mainWindow.loadURL('http://localhost:5173');
 
-  // Geliştirici konsolunu otomatik aç (Hata varsa görelim)
+  // Geliştirici konsolunu otomatik aç
   mainWindow.webContents.openDevTools();
 }
+
+// --- YENİ: SİBERPUNK PENCERE KONTROLLERİ İÇİN DİNLEYİCİLER ---
+ipcMain.on('window-minimize', () => {
+  if (mainWindow) mainWindow.minimize();
+});
+
+ipcMain.on('window-maximize', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  }
+});
+
+ipcMain.on('window-close', () => {
+  if (mainWindow) mainWindow.close();
+});
+// -------------------------------------------------------------
 
 app.whenReady().then(() => {
   setupIpcHandlers(); // Backend bağlantısını kur
