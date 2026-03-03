@@ -1,61 +1,72 @@
 const { getInstalledApps } = require('./appDiscovery');
 const { searchCVE } = require('./nvdService');
 const prisma = require('../config/db');
+const EventEmitter = require('events');
 
+// Canlı yayın için radyo frekansımız
+const progressEmitter = new EventEmitter();
 const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
 async function performFullScan() {
     console.log("🚀 Tarama Başlatılıyor...");
+    progressEmitter.emit('progress', { percent: 2, message: "Sistem başlatılıyor..." });
 
     const scanRecord = await prisma.scanHistory.create({
         data: { status: 'SCANNING' }
     });
 
     const apps = await getInstalledApps();
-    console.log(`📡 Windows'tan ${apps.length} ham kayıt çekildi. Temizlik başlıyor...`);
+    progressEmitter.emit('progress', { percent: 5, message: "Windows kayıtları çekildi, çöpler temizleniyor..." });
 
-    let totalVulnerabilities = 0;
-    let processedAppCount = 0; 
-    
-    const seenApps = new Set(); // Kara Kaplı Defter (Klon filtreleyici)
+    // 1. ÖNCE LİSTEYİ TEMİZLE VE GERÇEK SAYIYI BUL
+    const validApps = [];
+    const seenApps = new Set();
 
     for (const app of apps) {
+        const rawName = app.DisplayName || app.Name || app.name || "";
+        const rawVersion = app.DisplayVersion || app.Version || app.version || "";
+        const cleanVendor = app.Publisher || app.publisher || app.vendor || "Unknown";
+
+        const cleanName = rawName.replace(/\(.*?\)/g, '').replace(/[^a-zA-Z0-9 ]/g, '').split(' ').slice(0, 2).join(' ').trim() || "Unknown";
+        const cleanVersion = rawVersion.split(' ')[0].replace(/[^0-9.]/g, '') || "0.0";
+
+        if (!cleanName || cleanName === "Unknown" || cleanName.length < 3 || cleanVersion === "0.0") continue;
+        
+        const uniqueAppKey = `${cleanName}-${cleanVersion}`;
+        if (seenApps.has(uniqueAppKey)) continue;
+
+        seenApps.add(uniqueAppKey);
+        validApps.push({ cleanName, cleanVersion, cleanVendor });
+    }
+
+    const totalApps = validApps.length;
+    let currentAppIndex = 0;
+    let totalVulnerabilities = 0;
+
+    console.log(`📡 Temizlik bitti. Tam olarak ${totalApps} benzersiz uygulama taranacak.`);
+
+    // 2. GERÇEK TARAMA DÖNGÜSÜ (Canlı Yayın Başlıyor)
+    for (const app of validApps) {
+        currentAppIndex++;
+        
+        // MATEMATİK: %5'ten başla, %95'e kadar gerçekçi ilerle
+        const currentPercent = 5 + Math.floor((currentAppIndex / totalApps) * 90);
+        
+        progressEmitter.emit('progress', { 
+            percent: currentPercent, 
+            message: `[${currentAppIndex}/${totalApps}] Taranıyor: ${app.cleanName}` 
+        });
+
         try {
-            const rawName = app.DisplayName || app.Name || app.name || "";
-            const rawVersion = app.DisplayVersion || app.Version || app.version || "";
-            const cleanVendor = app.Publisher || app.publisher || app.vendor || "Unknown";
-
-            const cleanName = rawName
-                .replace(/\(.*?\)/g, '')
-                .replace(/[^a-zA-Z0-9 ]/g, '')
-                .split(' ')
-                .slice(0, 2).join(' ')
-                .trim() || "Unknown";
-
-            const cleanVersion = rawVersion.split(' ')[0].replace(/[^0-9.]/g, '') || "0.0";
-
-            if (!cleanName || cleanName === "Unknown" || cleanName.length < 3 || cleanVersion === "0.0") {
-                continue; // Çöpleri sessizce atla
-            }
-
-            const uniqueAppKey = `${cleanName}-${cleanVersion}`;
-            if (seenApps.has(uniqueAppKey)) {
-                continue; // Klonları sessizce atla
-            }
-            
-            seenApps.add(uniqueAppKey);
-            processedAppCount++;
-
             const savedApp = await prisma.discoveredApp.upsert({
-                where: { app_unique: { name: cleanName, version: cleanVersion } },
-                update: { vendor: cleanVendor, scanId: scanRecord.id },
-                create: { name: cleanName, version: cleanVersion, vendor: cleanVendor, scanId: scanRecord.id }
+                where: { app_unique: { name: app.cleanName, version: app.cleanVersion } },
+                update: { vendor: app.cleanVendor, scanId: scanRecord.id },
+                create: { name: app.cleanName, version: app.cleanVersion, vendor: app.cleanVendor, scanId: scanRecord.id }
             });
 
-            const keyword = `${cleanName} ${cleanVersion}`;
+            const keyword = `${app.cleanName} ${app.cleanVersion}`;
             const rawCves = await searchCVE(keyword);
 
-            // NVD'DEN GELEN MÜKERRER CVE'LERİ TEMİZLE
             const uniqueCvesMap = new Map();
             if (rawCves && rawCves.length > 0) {
                 rawCves.forEach(cve => uniqueCvesMap.set(cve.cveId, cve));
@@ -63,43 +74,35 @@ async function performFullScan() {
             const cves = Array.from(uniqueCvesMap.values()); 
 
             if (cves.length > 0) {
-                console.log(`🚨 ${cleanName} için ${cves.length} zafiyet bulundu!`);
                 totalVulnerabilities += cves.length; 
-
                 for (const cve of cves) {
                     try {
                         await prisma.vulnerability.upsert({
-                            where: {
-                                cve_app_unique: { cveId: cve.cveId, appId: savedApp.id }
-                            },
+                            where: { cve_app_unique: { cveId: cve.cveId, appId: savedApp.id } },
                             update: { description: cve.description, score: cve.score, severity: cve.severity },
                             create: {
-                                cveId: cve.cveId, description: cve.description,
-                                score: cve.score, severity: cve.severity,
-                                publishedAt: cve.published, appId: savedApp.id
+                                cveId: cve.cveId, description: cve.description, score: cve.score, 
+                                severity: cve.severity, publishedAt: cve.published, appId: savedApp.id
                             }
                         });
-                    } catch (cveErr) {
-                        console.error(`⚠️ CVE Kayıt hatası (${cve.cveId}):`, cveErr.message);
-                    }
+                    } catch (cveErr) { }
                 }
             }
-            
-            await sleep(2000);
-
+            await sleep(2000); // Rate limit koruması
         } catch (appErr) {
-            console.error(`❌ ${app.Name || app.name} işlenirken hata oluştu:`, appErr.message);
             continue;
         }
     }
+
+    progressEmitter.emit('progress', { percent: 100, message: "Tarama tamamlandı, rapor hazırlanıyor..." });
 
     await prisma.scanHistory.update({
         where: { id: scanRecord.id },
         data: { status: 'COMPLETED' }
     });
 
-    console.log(`✅ Tarama Bitti. Toplam ${processedAppCount} benzersiz uygulama tarandı, ${totalVulnerabilities} benzersiz zafiyet bulundu.`);
+    console.log(`✅ İşlem Tamam. ${totalApps} uygulama tarandı, ${totalVulnerabilities} zafiyet bulundu.`);
     return { scanId: scanRecord.id, totalVulnerabilities };
 }
 
-module.exports = { performFullScan };
+module.exports = { performFullScan, progressEmitter };

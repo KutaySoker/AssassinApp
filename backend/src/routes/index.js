@@ -1,10 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const scanController = require('../controllers/scanController');
+const { startScan, getHistory, getScanDetails, streamProgress } = require('../controllers/scanController');
 
-// http://localhost:3000/api/scan/start adresine bağlar
-router.get('/scan/start', scanController.startScan);
-router.get('/scan/history', scanController.getHistory);
-router.get('/scan/:id', scanController.getScanDetails);
+// BU YAZIYI TERMİNALDE GÖRMEZSEK SUNUCU GÜNCELLENMEMİŞ DEMEKTİR
+console.log("🔥 SİBERPUNK ROTALARI AKTİF EDİLDİ!");
+
+// MENTORUN ÇALIŞAN AYARI: Tekrar GET yapıyoruz!
+router.get('/start', startScan); 
+router.get('/history', getHistory);
+
+// CANLI YAYIN ROTASI (Kesinlikle :id'den üstte)
+router.get('/stream', streamProgress); 
+
+// JOKER ROTA EN ALTTA
+router.get('/:id', getScanDetails); 
 
 module.exports = router;

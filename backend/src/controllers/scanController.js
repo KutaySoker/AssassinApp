@@ -1,4 +1,4 @@
-const { performFullScan } = require('../services/scanManager');
+const { performFullScan, progressEmitter } = require('../services/scanManager');
 const prisma = require('../config/db');
 
 // Taramayı Başlatır
@@ -17,11 +17,7 @@ async function getHistory(req, res) {
   try {
     const history = await prisma.scanHistory.findMany({
       orderBy: { startedAt: 'desc' },
-      include: {
-        _count: {
-          select: { apps: true }
-        }
-      }
+      include: { _count: { select: { apps: true } } }
     });
     res.json({ success: true, data: history });
   } catch (error) {
@@ -32,18 +28,10 @@ async function getHistory(req, res) {
 // Tek Bir Taramanın Detayını Getirir
 async function getScanDetails(req, res) {
   try {
-    // DİKKAT: UUID olduğu için parseInt KULLANMIYORUZ!
-    const scanId = req.params.id; 
-    
+    const scanId = req.params.id; // UUID için parseInt KULLANMIYORUZ!
     const details = await prisma.scanHistory.findUnique({
       where: { id: scanId },
-      include: {
-        apps: {
-          include: {
-            vulnerabilities: true
-          }
-        }
-      }
+      include: { apps: { include: { vulnerabilities: true } } }
     });
     res.json({ success: true, data: details });
   } catch (error) {
@@ -51,4 +39,25 @@ async function getScanDetails(req, res) {
   }
 }
 
-module.exports = { startScan, getHistory, getScanDetails };
+// CANLI YAYIN FONKSİYONU (SSE)
+async function streamProgress(req, res) {
+  // Express'in bunu JSON'a çevirmesini KESİN OLARAK engelliyoruz
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*' // CORS patlamasını engeller
+  });
+
+  const sendProgress = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  progressEmitter.on('progress', sendProgress);
+
+  req.on('close', () => {
+    progressEmitter.off('progress', sendProgress);
+  });
+}
+
+module.exports = { startScan, getHistory, getScanDetails, streamProgress };

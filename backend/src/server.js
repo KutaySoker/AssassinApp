@@ -1,9 +1,16 @@
-// backend/src/server.js
-const app = require('./app'); // Yanındaki app.js'i çağırır
+const express = require('express');
+const cors = require('cors');
+const scanRoutes = require('./routes/index.js'); // 1. KAPIYI GETİR
 
-const PORT = process.env.PORT || 3000;
+const app = express();
 
+app.use(cors());
+app.use(express.json());
+
+// 2. KAPIYI DUVARA MONTE ET
+app.use('/api/scan', scanRoutes); 
+
+const PORT = 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 AssassinApp Backend Ateşlendi: http://localhost:${PORT}`);
-    console.log(`🔗 Scan Endpoint: http://localhost:${PORT}/api/scan/start`);
+  console.log(`Sunucu ${PORT} portunda fırtına gibi çalışıyor!`);
 });
