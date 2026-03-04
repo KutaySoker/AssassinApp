@@ -10,6 +10,12 @@ function createWindow() {
     width: 1200,
     height: 800,
     frame: false, // Çerçeve gitti
+    
+    // --- GÖREV ÇUBUĞU DÜZELTMELERİ BURADA ---
+    title: 'Assassin', // Üstüne gelince "Electron" yerine "AssassinApp" yazacak
+    icon: path.join(__dirname, 'icon.png'), // Görev çubuğundaki o atom logosunu değiştirecek
+    // -----------------------------------------
+
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

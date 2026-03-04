@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 
-const Sidebar = () => {
+// YENİ: activeTab ve setActiveTab proplarını ekledik ki sayfaları değiştirebilelim
+const Sidebar = ({ activeTab, setActiveTab }) => {
     const [isOpen, setIsOpen] = useState(false);
 
-    // İleride buraya yeni sayfalar eklenecek
+    // Menü öğeleri listemiz
     const menuItems = [
         {
             id: 'scan',
@@ -11,6 +12,16 @@ const Sidebar = () => {
             icon: (
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+            )
+        },
+        // YENİ: Winget Güncelleme Sayfası Butonu
+        {
+            id: 'update',
+            label: 'YAZILIM GÜNCELLE',
+            icon: (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
             )
         },
@@ -58,8 +69,12 @@ const Sidebar = () => {
                 {menuItems.map((item) => (
                     <button
                         key={item.id}
-                        className={`flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-300 group ${item.id === 'scan' ? 'bg-cyan-900/20 text-cyan-400 border border-cyan-500/30' : 'text-zinc-500 hover:bg-zinc-900 hover:text-cyan-300'
-                            }`}
+                        onClick={() => setActiveTab(item.id)} // YENİ: Tıklanınca App.jsx'teki state'i değiştirir
+                        className={`flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-300 group ${
+                            activeTab === item.id 
+                                ? 'bg-cyan-900/20 text-cyan-400 border border-cyan-500/30' // Aktif sekme parlak cyan olur
+                                : 'text-zinc-500 hover:bg-zinc-900 hover:text-cyan-300' // Diğerleri soluk kalır
+                        }`}
                         title={!isOpen ? item.label : ""}
                     >
                         <div className="min-w-[24px] group-hover:drop-shadow-[0_0_8px_rgba(6,182,212,0.8)] transition-all">
@@ -77,7 +92,8 @@ const Sidebar = () => {
             {/* ALT VERSİYON BİLGİSİ */}
             {isOpen && (
                 <div className="p-4 border-t border-zinc-800 text-center animate-in fade-in">
-                    <span className="text-[10px] text-zinc-600 font-mono tracking-widest uppercase">v1.0.0</span>
+                    {/* Ekran görüntüne uygun olarak V1.0.2 yaptım usta */}
+                    <span className="text-[10px] text-zinc-600 font-mono tracking-widest uppercase">v1.0.2</span>
                 </div>
             )}
         </div>
