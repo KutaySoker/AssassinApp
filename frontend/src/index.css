@@ -1,3 +1,30 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* SİBERPUNK SCROLLBAR - GLOBAL */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000; /* Siyah arka plan */
+  border-left: 1px solid #18181b; /* zinc-900 */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a; /* zinc-800 - normalde koyu gri */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #06b6d4; /* cyan-500 - üzerine gelince neon cyan parlar */
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+}
+
+/* Firefox için destek */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #27272a #000000;
+}
