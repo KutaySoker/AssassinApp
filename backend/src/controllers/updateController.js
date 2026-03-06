@@ -1,41 +1,69 @@
+// DİKKAT: Kısır döngüyü kırmak için objeyi parçalamadan direkt aldık
 const updateService = require('../services/updateService');
+const { addLog } = require('./historyController');
 
 const checkUpdates = async (req, res) => {
     try {
         const apps = await updateService.getOutdatedApps();
-        res.json({ success: true, data: apps });
+
+        // --- CASUS LOG BURADA DEVREYE GİRİYOR ---
+        if (apps.length === 0) {
+            addLog({ status: "CLEAN", message: "Sistem kusursuz. Güncellenecek uygulama bulunamadı.", apps: [] });
+        } else {
+            addLog({ status: "SCANNED", message: `${apps.length} adet güncellenmemiş uygulama tespit edildi.`, apps: apps });
+        }
+
+        res.json(apps);
     } catch (error) {
-        res.status(500).json({ success: false, error: 'Güncellemeler kontrol edilemedi.' });
+        console.error("Tarama Hatası:", error);
+        res.status(500).json({ error: "Güncellemeler denetlenirken hata oluştu." });
     }
 };
 
 const startUpdate = async (req, res) => {
     try {
-        const { id } = req.body; // id gelirse tekli, gelmezse toplu
-        updateService.performUpdate(id).then(result => {
-            console.log("Güncelleme işlemi tamamlandı.");
+        const appId = req.body.appId || req.body.id;
+
+        if (appId) {
+            console.log(`[API] Tekli güncelleme (Sniper) tetiklendi. Hedef ID: ${appId}`);
+        } else {
+            console.log(`[API] Toplu güncelleme (--all) tetiklendi.`);
+        }
+
+        updateService.performUpdate(appId).then(result => {
+            console.log(`[API] Güncelleme işlemi bitti. Başarı: ${result.success}`);
+
+            // --- GÜNCELLEME BİTİNCE LOG AT ---
+            if (result.success) {
+                addLog({
+                    status: "UPDATED",
+                    message: appId ? `${appId} başarıyla güncellendi.` : "Tüm sistem güncellendi.",
+                    apps: appId ? [{ name: appId, oldVer: "Bilinmiyor", newVer: "Güncel" }] : []
+                });
+            }
         });
-        res.json({ success: true, message: 'Güncelleme başlatıldı.' });
+
+        res.status(200).json({ message: "Güncelleme komutu Winget'e iletildi." });
+
     } catch (error) {
-        res.status(500).json({ success: false, error: 'İşlem başlatılamadı.' });
+        console.error("Güncelleme başlatılamadı:", error);
+        res.status(500).json({ error: "Güncelleme başlatılamadı." });
     }
 };
 
 const streamUpdateProgress = (req, res) => {
-    res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
-    });
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
 
-    const sendProgress = (data) => {
+    const onProgress = (data) => {
         res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    updateService.updateEmitter.on('update-progress', sendProgress);
+    updateService.updateEmitter.on('update-progress', onProgress);
 
     req.on('close', () => {
-        updateService.updateEmitter.off('update-progress', sendProgress);
+        updateService.updateEmitter.off('update-progress', onProgress);
     });
 };
 

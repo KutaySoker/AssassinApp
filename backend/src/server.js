@@ -1,13 +1,15 @@
 const express = require('express');
 const cors = require('cors');
-const scanRoutes = require('./routes/index.js'); // 1. KAPIYI GETİR
+
+// BÜTÜN ROTALAR TEK MERKEZDEN (index.js) GELİYOR
+const scanRoutes = require('./routes/index.js'); 
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// 2. KAPIYI DUVARA MONTE ET
+// KAPIYI DUVARA MONTE ET
 app.use('/api/scan', scanRoutes); 
 
 const PORT = 3000;

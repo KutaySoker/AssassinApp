@@ -1,10 +1,30 @@
 const { performFullScan, progressEmitter } = require('../services/scanManager');
 const prisma = require('../config/db');
+const { addLog } = require('./historyController');
 
+// Taramayı Başlatır
 // Taramayı Başlatır
 async function startScan(req, res) {
   try {
     const result = await performFullScan();
+    
+    // --- NÜKLEER ÇÖZÜM BURADA ---
+    // Prisma'ya gidip "Bana veritabanına eklenen EN SON taramayı getir" diyoruz.
+    const lastScan = await prisma.scanHistory.findFirst({
+      orderBy: { startedAt: 'desc' }
+    });
+
+    // result.id varsa onu al, yoksa result.scanId al, o da yoksa direkt veritabanındaki son taramanın ID'sini (lastScan.id) çak!
+    const gercekTaramaID = result.id || result.scanId || (lastScan ? lastScan.id : null); 
+
+    // Kara Kutu'ya (History) KESİN GERÇEK ID ile log atıyoruz
+    addLog({ 
+        id: gercekTaramaID, 
+        status: "SCANNED", 
+        message: "Güvenlik zafiyet taraması tamamlandı.", 
+        apps: [] 
+    });
+    
     res.json({ success: true, data: result });
   } catch (error) {
     console.error("Controller Hatası:", error);
