@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "id": "1627c004-cc5f-42a8-b5f1-a74a804d0148",
+    "date": "16.03.2026 15:32:32",
+    "status": "SCANNED",
+    "message": "Güvenlik zafiyet taraması tamamlandı.",
+    "apps": []
+  }
+]
