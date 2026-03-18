@@ -7,7 +7,6 @@ const getOutdatedApps = () => {
     return new Promise((resolve) => {
         console.log("=== WINGET TARAMASI BAŞLATILDI ===");
 
-        // EKSİK OLAN PARAMETRELERİ GERİ KOYDUK! Bunlar olmadan Winget kör kalıyor.
         exec('chcp 65001 >NUL & winget upgrade --include-unknown --accept-source-agreements', { encoding: 'utf8', maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
             try {
                 if (!stdout) {
@@ -19,21 +18,23 @@ const getOutdatedApps = () => {
                 const lines = [];
 
                 for (let line of rawLines) {
-                    // Görünmez karakter temizliği
                     const lastCr = line.lastIndexOf('\r');
                     if (lastCr !== -1) line = line.substring(lastCr + 1);
 
                     line = line.replace(/\x1b\][^\x07]*\x07/g, '');
                     line = line.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
                     line = line.replace(/[\x00-\x1F\x7F]/g, '');
-
                     lines.push(line);
                 }
 
                 const dashLineIndex = lines.findIndex(line => line.trim().startsWith('---'));
 
                 if (dashLineIndex === -1) {
-                    console.log("Tablo ayıracı bulunamadı.");
+                    // 🔥 RÖNTGEN BURADA: Winget aslında ne dedi de tablo bulamadık?
+                    console.log("⚠️ TABLO AYIRACI BULUNAMADI! Winget'in Ham Çıktısı Aşağıda:");
+                    console.log("--------------------------------------------------");
+                    console.log(stdout.trim()); // Winget'in gizlediği mesajı buraya kusacak
+                    console.log("--------------------------------------------------");
                     return resolve([]);
                 }
 
@@ -54,7 +55,6 @@ const getOutdatedApps = () => {
                     if (line.trim() === '' || line.toLowerCase().includes('upgrades available') || line.toLowerCase().includes('güncelleştirme')) continue;
 
                     const paddedLine = line.padEnd(colSource + 15, ' ');
-
                     const appName = paddedLine.substring(0, colId).trim();
                     const appId = paddedLine.substring(colId, colVersion).trim();
                     let appCurrent = paddedLine.substring(colVersion, colAvailable).trim();
@@ -72,7 +72,6 @@ const getOutdatedApps = () => {
                             currentVersion: appCurrent,
                             availableVersion: appAvailable
                         });
-                        console.log(`--> EKRANA GİDİYOR: ${appName} | Yeni: ${appAvailable}`);
                     }
                 }
 
@@ -96,15 +95,11 @@ const performUpdate = (appId = null) => {
         const child = spawn('winget', args, { shell: true });
 
         child.stdout.on('data', (data) => {
-            // Gelen veriyi satır satır parçalıyoruz ki aradaki çürükleri ayıklayabilelim
             const lines = data.toString('utf8').split(/\r?\n/);
-            
             for (let line of lines) {
                 let cleanLine = line.trim();
                 if (!cleanLine) continue;
 
-                // --- SANSÜR (GÜMRÜK) NOKTASI ---
-                // Kullanıcının kafasını karıştıracak o uyarıları yakalayıp imha ediyoruz
                 const lowerLine = cleanLine.toLowerCase();
                 if (
                     lowerLine.includes('cannot be determined') || 
@@ -112,7 +107,7 @@ const performUpdate = (appId = null) => {
                     lowerLine.includes('--include-unknown') ||
                     lowerLine.includes('package(s) have version numbers')
                 ) {
-                    continue; // Bu satırı çöpe at, frontend'e (kullanıcıya) asla gönderme!
+                    continue; 
                 }
 
                 updateEmitter.emit('update-progress', { text: cleanLine });
@@ -124,10 +119,9 @@ const performUpdate = (appId = null) => {
         child.on('close', (code) => {
             const success = code === 0 || code === -1978335215;
             
-            // FRONTEND'İ KİLİTTEN KURTARACAK O HAYATİ SİNYAL
             updateEmitter.emit('update-progress', { 
                 text: success ? "Sistem başarıyla güncellendi!" : "İşlem tamamlandı.", 
-                done: true // İşte bu bayrak loader'ı kapatıp sayfayı yeniletecek!
+                done: true 
             });
 
             resolve({ success });

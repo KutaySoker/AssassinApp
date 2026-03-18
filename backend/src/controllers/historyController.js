@@ -1,53 +1,52 @@
-const fs = require('fs');
-const path = require('path');
+const prisma = require('../config/db');
 
-// Logların tutulacağı gizli dosyamız
-const historyFilePath = path.join(__dirname, '../../history.json');
-
-// Sunucu kalktığında dosya yoksa otomatik yaratır
-if (!fs.existsSync(historyFilePath)) {
-    fs.writeFileSync(historyFilePath, JSON.stringify([]));
-}
-
-const getHistory = (req, res) => {
+const addLog = async (logData) => {
     try {
-        const data = fs.readFileSync(historyFilePath, 'utf8');
-        res.json(JSON.parse(data));
-    } catch (error) {
-        res.status(500).json({ error: "Geçmiş okunamadı." });
-    }
-};
-
-const clearHistory = (req, res) => {
-    try {
-        fs.writeFileSync(historyFilePath, JSON.stringify([]));
-        res.json({ success: true, message: "Geçmiş temizlendi." });
-    } catch (error) {
-        res.status(500).json({ error: "Geçmiş temizlenemedi." });
-    }
-};
-
-// Diğer dosyalardan (tarama ve güncelleme bitince) buraya kayıt atmak için casus fonksiyon
-const addLog = (logData) => {
-    try {
-        const data = fs.readFileSync(historyFilePath, 'utf8');
-        let history = JSON.parse(data);
-
-        // --- KRİTİK DEĞİŞİKLİK BURADA ---
-        // Eğer log atarken gerçek bir ID gönderildiyse onu kullan, gönderilmediyse OP- uydur
-        history.unshift({
-            id: logData.id || `OP-${Math.floor(1000 + Math.random() * 9000)}`,
-            date: new Date().toLocaleString('tr-TR'),
-            ...logData
+        // ZIRH: Ne gelirse gelsin onu Prisma'nın kabul edeceği saf bir diziye (array) çeviririz.
+        let safeApps = [];
+        if (logData.apps) {
+            if (typeof logData.apps === 'string') {
+                try { safeApps = JSON.parse(logData.apps); } catch(e) { safeApps = []; }
+            } else if (Array.isArray(logData.apps) || typeof logData.apps === 'object') {
+                safeApps = logData.apps;
+            }
+        }
+        
+        await prisma.operationLog.create({
+            data: {
+                id: logData.id || `OP-${Date.now()}`,
+                agentId: logData.agentId || 'GHOST-AGENT',
+                status: logData.status || 'UNKNOWN',
+                message: logData.message || 'İşlem yapıldı.',
+                apps: safeApps // Artık Prisma burada patlayamaz!
+            }
         });
-
-        if (history.length > 50) history.pop();
-
-        fs.writeFileSync(historyFilePath, JSON.stringify(history, null, 2));
-    } catch (error) {
-        console.error("Log yazılamadı:", error);
+        console.log(`✅ [LOG BAŞARILI] ${logData.id} geçmişe kaydedildi.`);
+    } catch (e) { 
+        console.error(`❌ [LOG PATLADI] ${logData.id} geçmişe YAZILAMADI:`, e.message); 
     }
 };
 
+const getHistory = async (req, res) => {
+    try {
+        const agentId = req.headers['x-assassin-id'] || 'GHOST-AGENT';
+        const history = await prisma.operationLog.findMany({
+            where: { agentId },
+            orderBy: { createdAt: 'desc' },
+            take: 100
+        });
+        res.json({ success: true, history });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+};
 
-module.exports = { getHistory, clearHistory, addLog };
+const clearHistory = async (req, res) => {
+    try {
+        const agentId = req.headers['x-assassin-id'] || 'GHOST-AGENT';
+        await prisma.operationLog.deleteMany({ where: { agentId } });
+        res.json({ success: true, message: "Geçmiş temizlendi." });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+module.exports = { addLog, getHistory, clearHistory };

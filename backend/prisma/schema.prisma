@@ -1,5 +1,3 @@
-// Yer: backend/prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,33 +7,34 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Taramaları tutan ana tablo (Örn: 17 Şubat Taraması)
+// ==========================================
+// 1. ZAFİYET TARAMASI (SCAN) MİMARİSİ
+// ==========================================
 model ScanHistory {
   id        String   @id @default(uuid())
   startedAt DateTime @default(now())
   status    String   // "COMPLETED", "FAILED", "SCANNING"
   
-  // İlişkiler
+  // YENİ EKLENEN: Ajan Kimliği
+  agentId   String   @default("GHOST-AGENT")
+  
   apps      DiscoveredApp[]
 }
 
-// Taranan ve bulunan uygulamalar
 model DiscoveredApp {
   id          String   @id @default(uuid())
   name        String
   version     String
   vendor      String?
-  path        String?  // Opsiyonel: Eklemediysen hata verebilir, kontrol et
-  cpeString   String?  // Opsiyonel
+  path        String?  
+  cpeString   String?  
   scanId      String
-  scan        ScanHistory @relation(fields: [scanId], references: [id])
+  scan        ScanHistory @relation(fields: [scanId], references: [id], onDelete: Cascade)
   vulnerabilities Vulnerability[]
 
-  // GÜNCELLENEN SATIR: scanId çıkarıldı. Artık uygulama sadece isim+versiyon ile benzersiz.
   @@unique([name, version], name: "app_unique")
 }
 
-// Zafiyet detayları (CVE verileri)
 model Vulnerability {
   id          String   @id @default(uuid())
   cveId       String
@@ -44,8 +43,63 @@ model Vulnerability {
   score       Float?
   publishedAt DateTime?
   appId       String
-  app         DiscoveredApp @relation(fields: [appId], references: [id])
+  app         DiscoveredApp @relation(fields: [appId], references: [id], onDelete: Cascade)
 
-  // 'upsert' için bu ismi kullanacağız
   @@unique([cveId, appId], name: "cve_app_unique")
+}
+
+// ==========================================
+// 2. RECON (SUBDOMAIN KEŞİF) MİMARİSİ
+// ==========================================
+model ReconHistory {
+  id           String      @id 
+  targetDomain String      
+  startedAt    DateTime    @default(now())
+  agentId      String      @default("GHOST-AGENT")
+  
+  subdomains   Subdomain[]
+}
+
+model Subdomain {
+  id          String       @id @default(uuid())
+  url         String
+  status      Int?         
+  title       String?      
+  server      String?      
+  
+  reconId     String
+  recon       ReconHistory @relation(fields: [reconId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// 3. GÜNCELLEME (VERSİYON KONTROL) MİMARİSİ
+// ==========================================
+model UpdateHistory {
+  id          String       @id 
+  startedAt   DateTime     @default(now())
+  agentId     String       @default("GHOST-AGENT")
+  
+  apps        UpdateApp[]
+}
+
+model UpdateApp {
+  id             String        @id @default(uuid())
+  name           String        
+  currentVersion String?       
+  latestVersion  String?       
+  
+  updateId       String
+  update         UpdateHistory @relation(fields: [updateId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// 4. GENEL LOGLAR (Geçmiş Ekranı Vitrini)
+// ==========================================
+model OperationLog {
+  id        String   @id @default(uuid())
+  agentId   String   @default("GHOST-AGENT")
+  status    String
+  message   String
+  apps      Json?    
+  createdAt DateTime @default(now())
 }

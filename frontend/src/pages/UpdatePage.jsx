@@ -10,7 +10,15 @@ const UpdatePage = () => {
     setLoading(true);
     setLogText("Winget veritabanı taranıyor...");
     try {
-      const res = await fetch('http://localhost:3000/api/scan/updates/check');
+      const agentId = localStorage.getItem('assassin_agent_id') || 'GHOST-AGENT';
+
+      const res = await fetch('http://localhost:3000/api/scan/updates/check', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Assassin-ID': agentId // İŞTE SENİ GÖRÜNMEZLİKTEN KURTARACAK SATIR!
+        }
+      });
       const data = await res.json();
 
       if (Array.isArray(data)) {

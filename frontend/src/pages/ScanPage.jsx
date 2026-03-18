@@ -11,81 +11,83 @@ const ScanPage = () => {
   const handleStartScan = async () => {
     setScanState('scanning');
     setProgress(0);
-    setStatusText("Bağlantı kuruluyor...");
+    setStatusText("Arka planda motorlar ateşleniyor...");
 
-    // 1. CANLI YAYINA BAĞLAN (SSE)
     const eventSource = new EventSource('http://localhost:3000/api/scan/stream');
 
-    eventSource.onmessage = (event) => {
+    // 🔥 RADYO DİNLEYİCİSİ (Taramanın bitişini artık buradan anlıyoruz) 🔥
+    eventSource.onmessage = async (event) => {
       const data = JSON.parse(event.data);
       setProgress(data.percent);
       setStatusText(data.message);
+
+      // EĞER BACKEND "BEN BİTTİM, AL BU DA ID" DERSE, RAPORU ÇEKMEYE GİDİYORUZ!
+      if (data.isComplete && data.scanId) {
+          eventSource.close(); // Taramayla işimiz bitti, radyoyu kapat
+          
+          try {
+              const agentId = localStorage.getItem('assassin_agent_id') || 'GHOST-AGENT';
+              const detailsRes = await fetch(`http://localhost:3000/api/scan/${data.scanId}`, {
+                  headers: { 'X-Assassin-ID': agentId }
+              });
+              
+              const detailsText = await detailsRes.text();
+              const detailsJson = JSON.parse(detailsText);
+
+              const scanInfo = detailsJson.data || {};
+              const apps = scanInfo.apps || [];
+              const allVulns = [];
+
+              apps.forEach(app => {
+                const vulns = app.vulnerabilities || [];
+                vulns.forEach(v => {
+                  allVulns.push({
+                    app: app.name || 'Bilinmeyen App',
+                    version: app.version || 'Bilinmiyor',
+                    cve: v.cveId || 'Bilinmiyor',
+                    score: v.score || 'N/A',
+                    risk: v.severity || 'INFO'
+                  });
+                });
+              });
+
+              setReportData({
+                date: new Date().toLocaleDateString('tr-TR'),
+                scannedApps: apps.length,
+                foundVulns: allVulns.length,
+                vulnerabilities: allVulns
+              });
+
+              setTimeout(() => setScanState('completed'), 1000);
+          } catch (err) {
+              setStatusText(`Rapor Çekilemedi: ${err.message}`);
+              setTimeout(() => { setScanState('idle'); setProgress(0); }, 5000);
+          }
+      }
     };
 
     try {
-      // 2. TARAMAYI ATEŞLE (GET isteği)
-      const startRes = await fetch('http://localhost:3000/api/scan/start', {
+      const agentId = localStorage.getItem('assassin_agent_id') || 'GHOST-AGENT';
+      
+      // SADECE "BAŞLA" EMRİNİ VERİP ÇIKIYORUZ (AWAIT İLE BEKLEMEK YOK)
+      await fetch('http://localhost:3000/api/scan/start', {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json', 'X-Assassin-ID': agentId }
       });
-      if (!startRes.ok) throw new Error("Sunucu taramayı başlatamadı.");
-
-      const startJson = await startRes.json();
-      const scanId = startJson.data?.scanId;
-
-      if (!scanId) throw new Error("Geçerli bir Scan ID alınamadı.");
-
-      // 3. DETAYLARI ÇEK
-      const detailsRes = await fetch(`http://localhost:3000/api/scan/${scanId}`);
-      const detailsJson = await detailsRes.json();
-
-      const scanInfo = detailsJson.data || {};
-      const apps = scanInfo.apps || [];
-      const allVulns = [];
-
-      apps.forEach(app => {
-        const vulns = app.vulnerabilities || [];
-        vulns.forEach(v => {
-          allVulns.push({
-            app: app.name || 'Bilinmeyen App',
-            version: app.version || 'Bilinmiyor',
-            cve: v.cveId || 'Bilinmiyor',
-            score: v.score || 'N/A',
-            risk: v.severity || 'INFO'
-          });
-        });
-      });
-
-      // 4. RAPORU HAZIRLA (foundVulns direkt tablonun satır sayısına eşit!)
-      setReportData({
-        date: scanInfo.startedAt ? new Date(scanInfo.startedAt).toLocaleDateString('tr-TR') : new Date().toLocaleDateString('tr-TR'),
-        scannedApps: apps.length,
-        foundVulns: allVulns.length,
-        vulnerabilities: allVulns
-      });
-
-      eventSource.close(); // Radyoyu kapat
-
-      setTimeout(() => {
-        setScanState('completed');
-      }, 1000);
+      // Buradan sonrası tamamen yukarıdaki eventSource.onmessage bloğuna emanet.
 
     } catch (err) {
-      console.error("Tarama Hatası:", err);
+      console.error("Başlatma Hatası:", err);
       eventSource.close();
-      setStatusText(`HATA DETAYI: ${err.message}`);
-      setTimeout(() => {
-        setScanState('idle');
-        setProgress(0);
-      }, 6000);
+      setStatusText(`Sunucuya ulaşılamadı: ${err.message}`);
+      setTimeout(() => { setScanState('idle'); setProgress(0); }, 5000);
     }
   };
 
   return (
-    <div className="min-h-screen bg-black text-gray-300 font-mono p-8 flex flex-col items-center justify-center">
-
+    <div className="w-full h-full min-h-[80vh] flex flex-col items-center justify-center p-8 text-gray-300 font-mono relative">
       {scanState === 'idle' && (
-        <div className="flex flex-col items-center animate-in fade-in duration-500">
+        <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 w-full">
           <h1 className="text-5xl font-black mb-2 tracking-[0.2em] text-white uppercase drop-shadow-[0_0_15px_rgba(6,182,212,0.5)]">
             ASSASSINAPP
           </h1>
@@ -94,7 +96,7 @@ const ScanPage = () => {
           </p>
           <button
             onClick={handleStartScan}
-            className="w-64 h-64 rounded-full border-2 border-cyan-500/30 bg-black text-cyan-400 text-3xl font-black tracking-widest uppercase transition-all duration-300 hover:border-cyan-500 hover:shadow-[0_0_50px_rgba(6,182,212,0.3)]"
+            className="flex items-center justify-center w-64 h-64 rounded-full border-2 border-cyan-500/30 bg-black text-cyan-400 text-3xl font-black tracking-widest uppercase transition-all duration-300 hover:border-cyan-500 hover:shadow-[0_0_50px_rgba(6,182,212,0.3)] hover:scale-105"
           >
             SCAN
           </button>
@@ -102,16 +104,19 @@ const ScanPage = () => {
       )}
 
       {scanState === 'scanning' && (
-        <ScanProgress progress={progress} statusText={statusText} />
+        <div className="w-full flex justify-center items-center">
+          <ScanProgress progress={progress} statusText={statusText} />
+        </div>
       )}
 
       {scanState === 'completed' && reportData && (
-        <ScanReport
-          data={reportData}
-          onReset={() => { setScanState('idle'); setReportData(null); setProgress(0); }}
-        />
+        <div className="w-full h-full overflow-y-auto">
+          <ScanReport
+            data={reportData}
+            onReset={() => { setScanState('idle'); setReportData(null); setProgress(0); }}
+          />
+        </div>
       )}
-
     </div>
   );
 };

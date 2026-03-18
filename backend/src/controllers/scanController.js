@@ -1,83 +1,66 @@
-const { performFullScan, progressEmitter } = require('../services/scanManager');
 const prisma = require('../config/db');
 const { addLog } = require('./historyController');
+const scanManager = require('../services/scanManager'); 
 
-// Taramayı Başlatır
-// Taramayı Başlatır
 async function startScan(req, res) {
-  try {
-    const result = await performFullScan();
-    
-    // --- NÜKLEER ÇÖZÜM BURADA ---
-    // Prisma'ya gidip "Bana veritabanına eklenen EN SON taramayı getir" diyoruz.
-    const lastScan = await prisma.scanHistory.findFirst({
-      orderBy: { startedAt: 'desc' }
-    });
+    console.log("\n🔥 [SCAN-MOTORU] Tarama Tetiklendi (Arka Plana Atılıyor)..."); 
+    try {
+        // Ajan ID'sini frontend'den alıyoruz
+        const agentId = req.headers['x-assassin-id'] || 'GHOST-AGENT';
+        
+        // 🔥 DÜZELTME: Ajan ID'sini motorun içine iletiyoruz!
+        scanManager.performFullScan(agentId).then(async (result) => {
+            if (result && result.scanId) {
+                await addLog({ 
+                    id: result.scanId,
+                    agentId: agentId, // Geçmiş loguna da doğru ID'yi basıyoruz
+                    status: "SCANNED", 
+                    message: "Güvenlik zafiyet taraması tamamlandı.",
+                    apps: [] 
+                });
+            }
+        }).catch(e => console.error("Arka plan taraması çöktü:", e));
 
-    // result.id varsa onu al, yoksa result.scanId al, o da yoksa direkt veritabanındaki son taramanın ID'sini (lastScan.id) çak!
-    const gercekTaramaID = result.id || result.scanId || (lastScan ? lastScan.id : null); 
-
-    // Kara Kutu'ya (History) KESİN GERÇEK ID ile log atıyoruz
-    addLog({ 
-        id: gercekTaramaID, 
-        status: "SCANNED", 
-        message: "Güvenlik zafiyet taraması tamamlandı.", 
-        apps: [] 
-    });
-    
-    res.json({ success: true, data: result });
-  } catch (error) {
-    console.error("Controller Hatası:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
+        res.json({ success: true, message: "Tarama arka planda başarıyla başlatıldı." });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 }
 
-// Geçmiş Taramaları Getirir
-async function getHistory(req, res) {
-  try {
-    const history = await prisma.scanHistory.findMany({
-      orderBy: { startedAt: 'desc' },
-      include: { _count: { select: { apps: true } } }
-    });
-    res.json({ success: true, data: history });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-}
-
-// Tek Bir Taramanın Detayını Getirir
 async function getScanDetails(req, res) {
-  try {
-    const scanId = req.params.id; // UUID için parseInt KULLANMIYORUZ!
-    const details = await prisma.scanHistory.findUnique({
-      where: { id: scanId },
-      include: { apps: { include: { vulnerabilities: true } } }
-    });
-    res.json({ success: true, data: details });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
+    console.log(`🔍 [SCAN-DETAY] Rapor İstendi! Aranan ID: ${req.params.id}`);
+    try {
+        const scanId = req.params.id; 
+        const agentId = req.headers['x-assassin-id'] || 'GHOST-AGENT';
+        
+        const details = await prisma.scanHistory.findFirst({
+            where: { id: scanId, agentId: agentId },
+            include: { apps: { include: { vulnerabilities: true } } }
+        });
+
+        if (!details) return res.status(404).json({ success: false, error: "Rapor bulunamadı." });
+        res.json({ success: true, data: details });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 }
 
-// CANLI YAYIN FONKSİYONU (SSE)
+async function getHistory(req, res) {
+    try {
+        const agentId = req.headers['x-assassin-id'] || 'GHOST-AGENT';
+        const history = await prisma.scanHistory.findMany({
+            where: { agentId },
+            orderBy: { startedAt: 'desc' }
+        });
+        res.json({ success: true, data: history });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+}
+
 async function streamProgress(req, res) {
-  // Express'in bunu JSON'a çevirmesini KESİN OLARAK engelliyoruz
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*' // CORS patlamasını engeller
-  });
-
-  const sendProgress = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
-
-  progressEmitter.on('progress', sendProgress);
-
-  req.on('close', () => {
-    progressEmitter.off('progress', sendProgress);
-  });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+    const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    scanManager.progressEmitter.on('progress', send);
+    req.on('close', () => scanManager.progressEmitter.off('progress', send));
 }
 
-module.exports = { startScan, getHistory, getScanDetails, streamProgress };
+module.exports = { startScan, getHistory, streamProgress, getScanDetails }; 

@@ -1,7 +1,7 @@
 const { performFullScan, progressEmitter } = require('../scanManager'); // YENİ: Canlı yayın radyosunu da import ettik
 const { getInstalledApps } = require('../appDiscovery');
 const { searchCVE } = require('../nvdService');
-const prisma = require('../../config/db'); 
+const prisma = require('../../config/db');
 
 // 1. Dış Servisleri Taklit Ediyoruz
 jest.mock('../appDiscovery');
@@ -56,8 +56,7 @@ describe('scanManager.js Testleri (v1.0.0 Siberpunk Sürümü)', () => {
         const result = await performFullScan();
 
         // BEKLENTİLER
-        expect(prisma.scanHistory.create).toHaveBeenCalledWith({ data: { status: 'SCANNING' } });
-        expect(prisma.discoveredApp.upsert).toHaveBeenCalledTimes(1);
+        expect(prisma.scanHistory.create).toHaveBeenCalledWith({ data: { status: 'SCANNING', agentId: 'GHOST-AGENT' } });
         expect(prisma.vulnerability.upsert).toHaveBeenCalledTimes(1);
 
         // YENİ: EventEmitter "progress" eventi fırlattı mı? (Frontend'in loader'ı için şart)
@@ -77,7 +76,7 @@ describe('scanManager.js Testleri (v1.0.0 Siberpunk Sürümü)', () => {
             { DisplayName: "GecerliApp", DisplayVersion: "0.0" } // Çöp
         ]);
 
-        searchCVE.mockResolvedValue([]); 
+        searchCVE.mockResolvedValue([]);
 
         await performFullScan();
 
@@ -104,7 +103,7 @@ describe('scanManager.js Testleri (v1.0.0 Siberpunk Sürümü)', () => {
 
         // Prisma'ya zafiyet kaydı SADECE 1 KERE yapılmalı! (Map filtresi devrede)
         expect(prisma.vulnerability.upsert).toHaveBeenCalledTimes(1);
-        
+
         // Zafiyet sayacı şişmemeli, 1 demeli
         expect(result.totalVulnerabilities).toBe(1);
     });

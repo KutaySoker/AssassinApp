@@ -1,5 +1,33 @@
 [
   {
+    "id": "OP-5547",
+    "date": "16.03.2026 15:53:28",
+    "status": "CLEAN",
+    "message": "Sistem kusursuz. Güncellenecek uygulama bulunamadı.",
+    "apps": []
+  },
+  {
+    "id": "OP-3539",
+    "date": "16.03.2026 15:53:26",
+    "status": "CLEAN",
+    "message": "Sistem kusursuz. Güncellenecek uygulama bulunamadı.",
+    "apps": []
+  },
+  {
+    "id": "OP-6528",
+    "date": "16.03.2026 15:43:46",
+    "status": "CLEAN",
+    "message": "Sistem kusursuz. Güncellenecek uygulama bulunamadı.",
+    "apps": []
+  },
+  {
+    "id": "OP-4175",
+    "date": "16.03.2026 15:43:45",
+    "status": "CLEAN",
+    "message": "Sistem kusursuz. Güncellenecek uygulama bulunamadı.",
+    "apps": []
+  },
+  {
     "id": "1627c004-cc5f-42a8-b5f1-a74a804d0148",
     "date": "16.03.2026 15:32:32",
     "status": "SCANNED",

@@ -6,7 +6,7 @@ import './index.css';
 import Sidebar from './components/SideBar';
 import UpdatePage from './pages/UpdatePage';
 import HistoryPage from './components/HistoryPage';
-
+import ReconPage from './pages/ReconPage'; // --- YENİ EKLENEN: PASİF İSTİHBARAT SAYFASI
 
 function App() {
   const [activeTab, setActiveTab] = useState('scan'); // Varsayılan sayfa
@@ -71,6 +71,9 @@ function App() {
 
         {/* GEÇMİŞ (KARA KUTU) SEKME İÇERİĞİ - Artık sadece tıklandığında açılacak */}
         {activeTab === 'history' && <HistoryPage />}
+
+        {/* --- EKSİK OLAN 2. KABLO BURASIYDI: RECON SEKMESİ --- */}
+        {activeTab === 'recon' && <ReconPage />}
 
       </main>
     </div>

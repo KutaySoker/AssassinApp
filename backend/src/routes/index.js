@@ -1,33 +1,30 @@
 const express = require('express');
 const router = express.Router();
 
-// --- CONTROLLER BAĞLANTILARI ---
-// 1. Eski Scan Rotaları
-const { startScan, getHistory: getScanHistory, getScanDetails, streamProgress } = require('../controllers/scanController');
+const scan = require('../controllers/scanController');
+const history = require('../controllers/historyController');
+const update = require('../controllers/updateController');
+const recon = require('../controllers/reconController');
 
-// 2. Update Rotaları
-const { checkUpdates, startUpdate, streamUpdateProgress } = require('../controllers/updateController');
+router.use((req, res, next) => {
+    console.log(`\n[ROUTER] İstek Geldi: ${req.method} /api/scan${req.url}`);
+    next();
+});
 
-// 3. YENİ: History (Kara Kutu) Rotaları
-// (İsim çakışmasını önlemek için getHistory'i getOpHistory olarak içeri alıyoruz)
-const { getHistory: getOpHistory, clearHistory } = require('../controllers/historyController');
+// --- ROTALAR (SIRALAMA ÇOK ÖNEMLİDİR) ---
+router.get('/start', scan.startScan);
+router.get('/stream', scan.streamProgress);
 
+router.get('/operations/history', history.getHistory);
+router.delete('/operations/history', history.clearHistory);
 
-// --- TARAMA (SCAN) ROTALARI ---
-router.get('/start', startScan);
-router.get('/history', getScanHistory); // Bu senin eski spesifik scan geçmişin
-router.get('/stream', streamProgress); 
-router.get('/:id', getScanDetails); 
+router.post('/recon/start', recon.startRecon);
 
-// --- GÜNCELLEME (UPDATE) ROTALARI ---
-router.get('/updates/check', checkUpdates); 
-router.post('/updates/start', startUpdate); 
-router.get('/updates/stream', streamUpdateProgress); 
+router.get('/updates/check', update.checkUpdates);
+router.post('/updates/start', update.startUpdate);
+router.get('/updates/stream', update.streamProgress);
 
-// --- YENİ: OPERASYON GEÇMİŞİ (KARA KUTU) ROTALARI ---
-// server.js'de bu dosya '/api/scan' altına bağlandığı için 
-// Frontend'den buraya istek atarken '/api/scan/operations/history' adresini kullanacağız
-router.get('/operations/history', getOpHistory);
-router.delete('/operations/history', clearHistory);
+// DİKKAT: Bu dinamik /:id rotası EN ALTTA olmak zorundadır!
+router.get('/:id', scan.getScanDetails);
 
 module.exports = router;
