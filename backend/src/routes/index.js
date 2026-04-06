@@ -27,4 +27,7 @@ router.get('/updates/stream', update.streamProgress);
 // DİKKAT: Bu dinamik /:id rotası EN ALTTA olmak zorundadır!
 router.get('/:id', scan.getScanDetails);
 
+router.post('/recon/start', recon.startRecon);
+router.get('/recon/stream', recon.streamReconProgress);
+
 module.exports = router;

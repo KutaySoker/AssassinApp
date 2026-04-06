@@ -2,10 +2,13 @@ const axios = require('axios');
 const https = require('https');
 const prisma = require('../config/db');
 const { addLog } = require('./historyController');
+const EventEmitter = require('events');
+const { runActiveRecon } = require('../services/activeRecon'); // YENİ: Bizim Go-tarzı DNS Motoru
 
+const reconEmitter = new EventEmitter();
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-const HEADERS = { 
+const HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'en-US,en;q=0.9',
@@ -14,21 +17,32 @@ const HEADERS = {
 const TIMEOUT = 15000;
 const TARGET_STATUS_CODES = [200, 301, 302, 307, 308, 401, 403, 500];
 
-// DÜZELTME: API'lerden gelen bozuk verileri (sonundaki nokta, başındaki yıldız) tertemiz yapar
 const cleanSub = (sub) => sub ? sub.toLowerCase().trim().replace(/\.$/, '').replace(/^\*\./, '') : '';
 
-// --- 8 SİLİNDİRLİ DEV OSINT MOTORU (HATA LOGLARI AÇIK) ---
+// --- CANLI YAYIN (SSE) KÖPRÜSÜ ---
+const streamReconProgress = (req, res) => {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+    });
+    const onProgress = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    reconEmitter.on('recon-progress', onProgress);
+    req.on('close', () => reconEmitter.off('recon-progress', onProgress));
+};
+
+// --- 8 SİLİNDİRLİ DEV OSINT MOTORU (SENİN KODUN) ---
 
 const fetchCrtSh = async (domain) => {
     try {
         console.log(`[OSINT] crt.sh sorgulanıyor...`);
-        // DÜZELTME: % işareti kaldırıldı, doğrudan domain aranıyor (WAF Bypass)
+        reconEmitter.emit('recon-progress', { status: 'info', message: '[OSINT] crt.sh taranıyor...' });
         const { data } = await axios.get(`https://crt.sh/?q=${domain}&output=json`, { headers: HEADERS, timeout: 20000 });
         if (!Array.isArray(data)) return [];
         return data.map(d => d.name_value.split('\n')).flat().map(cleanSub).filter(Boolean);
-    } catch (e) { 
+    } catch (e) {
         console.log(`[OSINT-HATA] crt.sh çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
+        return [];
     }
 };
 
@@ -38,10 +52,7 @@ const fetchHackerTarget = async (domain) => {
         const { data } = await axios.get(`https://api.hackertarget.com/hostsearch/?q=${domain}`, { headers: HEADERS, timeout: TIMEOUT });
         if (!data || data.includes('error')) return [];
         return data.split('\n').map(line => cleanSub(line.split(',')[0])).filter(Boolean);
-    } catch (e) { 
-        console.log(`[OSINT-HATA] HackerTarget çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
-    }
+    } catch (e) { return []; }
 };
 
 const fetchAlienVault = async (domain) => {
@@ -50,10 +61,7 @@ const fetchAlienVault = async (domain) => {
         const { data } = await axios.get(`https://otx.alienvault.com/api/v1/indicators/domain/${domain}/passive_dns`, { headers: HEADERS, timeout: TIMEOUT });
         if (!data || !data.passive_dns) return [];
         return data.passive_dns.map(entry => cleanSub(entry.hostname));
-    } catch (e) { 
-        console.log(`[OSINT-HATA] AlienVault çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
-    }
+    } catch (e) { return []; }
 };
 
 const fetchCertSpotter = async (domain) => {
@@ -62,10 +70,7 @@ const fetchCertSpotter = async (domain) => {
         const { data } = await axios.get(`https://api.certspotter.com/v1/issuances?domain=${domain}&include_subdomains=true&expand=dns_names`, { headers: HEADERS, timeout: TIMEOUT });
         if (!Array.isArray(data)) return [];
         return data.map(entry => entry.dns_names).flat().map(cleanSub).filter(Boolean);
-    } catch (e) { 
-        console.log(`[OSINT-HATA] CertSpotter çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
-    }
+    } catch (e) { return []; }
 };
 
 const fetchAnubis = async (domain) => {
@@ -74,18 +79,15 @@ const fetchAnubis = async (domain) => {
         const { data } = await axios.get(`https://jonlu.ca/anubis/subdomains/${domain}`, { headers: HEADERS, timeout: TIMEOUT });
         if (!Array.isArray(data)) return [];
         return data.map(cleanSub);
-    } catch (e) { 
-        console.log(`[OSINT-HATA] Anubis çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
-    }
+    } catch (e) { return []; }
 };
 
 const fetchWayback = async (domain) => {
     try {
         console.log(`[OSINT] Wayback Machine sorgulanıyor...`);
-        const { data } = await axios.get('http://web.archive.org/cdx/search/cdx', { 
+        const { data } = await axios.get('http://web.archive.org/cdx/search/cdx', {
             params: { url: `*.${domain}/*`, output: 'json', collapse: 'urlkey' },
-            headers: HEADERS, timeout: 20000 
+            headers: HEADERS, timeout: 20000
         });
         if (!data || !Array.isArray(data) || data.length <= 1) return [];
         const subs = new Set();
@@ -96,13 +98,10 @@ const fetchWayback = async (domain) => {
                     const hostname = new URL(originalUrl).hostname;
                     if (hostname.endsWith(domain)) subs.add(cleanSub(hostname));
                 }
-            } catch(err) {}
+            } catch (err) { }
         });
         return Array.from(subs);
-    } catch (e) { 
-        console.log(`[OSINT-HATA] Wayback çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
-    }
+    } catch (e) { return []; }
 };
 
 const fetchUrlScan = async (domain) => {
@@ -111,10 +110,7 @@ const fetchUrlScan = async (domain) => {
         const { data } = await axios.get(`https://urlscan.io/api/v1/search/?q=domain:${domain}`, { timeout: TIMEOUT });
         if (!data || !data.results) return [];
         return data.results.map(r => cleanSub(r.page.domain));
-    } catch (e) { 
-        console.log(`[OSINT-HATA] URLScan çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
-    }
+    } catch (e) { return []; }
 };
 
 const fetchThreatMiner = async (domain) => {
@@ -123,24 +119,21 @@ const fetchThreatMiner = async (domain) => {
         const { data } = await axios.get(`https://api.threatminer.org/v2/domain.php?q=${domain}&rt=5`, { timeout: TIMEOUT });
         if (!data || !data.results) return [];
         return data.results.map(sub => cleanSub(sub));
-    } catch (e) { 
-        console.log(`[OSINT-HATA] ThreatMiner çöktü: HTTP ${e.response?.status || e.message}`);
-        return []; 
-    }
+    } catch (e) { return []; }
 };
 
-// --- HEDEF ANALİZİ ---
+// --- HEDEF ANALİZİ (HTTP PROBE) ---
 const probeDomain = async (domain) => {
     const protocols = ['https://', 'http://'];
     for (const protocol of protocols) {
         try {
             const targetUrl = `${protocol}${domain}`;
-            const res = await axios.get(targetUrl, { 
-                timeout: 8000, 
-                httpsAgent, 
-                validateStatus: () => true, 
-                maxRedirects: 0, 
-                headers: HEADERS 
+            const res = await axios.get(targetUrl, {
+                timeout: 8000,
+                httpsAgent,
+                validateStatus: () => true,
+                maxRedirects: 0,
+                headers: HEADERS
             });
 
             if (protocol === 'http://' && (res.status === 301 || res.status === 302) && res.headers.location?.startsWith(`https://${domain}`)) {
@@ -149,10 +142,12 @@ const probeDomain = async (domain) => {
 
             if (TARGET_STATUS_CODES.includes(res.status)) {
                 console.log(`[PROBE-CANLI] ${targetUrl} -> HTTP ${res.status}`);
+                // Canlı yayına HTTP statüsünü de yolluyoruz
+                reconEmitter.emit('recon-progress', { status: 'found', data: { url: targetUrl, httpStatus: res.status } });
                 return { url: targetUrl, status: res.status, server: res.headers['server'] || 'Bilinmiyor' };
             }
-        } catch (e) { 
-            continue; 
+        } catch (e) {
+            continue;
         }
     }
     return null;
@@ -167,27 +162,46 @@ const startRecon = async (req, res) => {
 
     try {
         console.log(`\n--- [RECON BAŞLADI] Hedef: ${domain} ---`);
-        
+        reconEmitter.emit('recon-progress', { status: 'info', message: `[OSINT] ${domain} için pasif istihbarat başlatıldı...` });
+
+        // 1. FAZ: OSINT (Pasif Tarama)
         const osintResults = await Promise.allSettled([
             fetchCrtSh(domain), fetchHackerTarget(domain), fetchAlienVault(domain),
             fetchCertSpotter(domain), fetchAnubis(domain), fetchWayback(domain),
             fetchUrlScan(domain), fetchThreatMiner(domain)
         ]);
-        
+
         let allSubs = [];
         osintResults.forEach(result => {
             if (result.status === 'fulfilled') allSubs = allSubs.concat(result.value);
         });
 
-        // Temizleyici ile son filtreden geçiyor
         const foundSubs = [...new Set([domain, ...allSubs])].filter(sub => sub.endsWith(domain) && !sub.includes('*'));
-        
         console.log(`[RECON-BİLGİ] OSINT motorları toplam ${foundSubs.length} benzersiz alt alan adı buldu.`);
-        console.log(`[PROBE] ${foundSubs.length} hedef taranıyor. Canlılık testi başlıyor...`);
+        reconEmitter.emit('recon-progress', { status: 'info', message: `[OSINT] ${foundSubs.length} hedef bulundu. Active Recon (Permütasyon) Motoru ateşleniyor...` });
 
-        const probePromises = foundSubs.map(sub => probeDomain(sub));
+        // 2. FAZ: ACTIVE RECON (Permütasyon + DNS Brute-force YENİ EKLENDİ)
+        let activeSubs = [];
+        try {
+
+            console.log(`[DEBUG] Active Scan için gönderilen subdomain sayısı: ${foundSubs.length}`);
+            const activeHosts = await runActiveRecon(domain, foundSubs, (progressData) => {
+                reconEmitter.emit('recon-progress', progressData);
+            });
+            console.log(`[DEBUG] Active Scan sonucunda bulunan YENİ host sayısı: ${activeHosts.length}`);
+            activeSubs = activeHosts.map(h => h.subdomain);
+        } catch (activeErr) {
+            console.error("[ACTIVE-RECON-HATA] DNS motoru çöktü:", activeErr);
+        }
+
+        // 3. FAZ: BİRLEŞTİRME VE HTTP CANLILIK TESTİ (PROBE)
+        const combinedSubs = [...new Set([...foundSubs, ...activeSubs])];
+        console.log(`[PROBE] OSINT + Active birleşti. Toplam ${combinedSubs.length} hedef HTTP taranıyor...`);
+        reconEmitter.emit('recon-progress', { status: 'info', message: `[PROBE] Savaş alanı genişledi: ${combinedSubs.length} hedef HTTP canlılık testine giriyor...` });
+
+        const probePromises = combinedSubs.map(sub => probeDomain(sub));
         const probeResults = await Promise.all(probePromises);
-        
+
         const aliveHosts = [];
         probeResults.forEach(hostData => {
             if (hostData) aliveHosts.push(hostData);
@@ -196,6 +210,7 @@ const startRecon = async (req, res) => {
         console.log(`[RECON-SONUÇ] ${aliveHosts.length} canlı hedef tespit edildi.\n`);
         const reconId = `RECON-${Date.now().toString().slice(-6)}`;
 
+        // 4. FAZ: VERİTABANI VE LOG
         try {
             await prisma.reconHistory.create({
                 data: {
@@ -203,20 +218,22 @@ const startRecon = async (req, res) => {
                     subdomains: { create: aliveHosts.map(h => ({ url: h.url, status: h.status, server: h.server })) }
                 }
             });
-        } catch (dbError) {}
+        } catch (dbError) { }
 
         await addLog({
             id: reconId, agentId, status: "COMPLETED",
-            message: `${domain} ağ analizi tamamlandı. Keşfedilen toplam: ${foundSubs.length}, Analiz edilen: ${aliveHosts.length}.`,
+            message: `${domain} ağ analizi tamamlandı. Keşfedilen toplam: ${combinedSubs.length}, HTTP Canlı: ${aliveHosts.length}.`,
             apps: aliveHosts.map(h => ({ name: h.url, version: `HTTP ${h.status}` }))
         });
 
-        res.json({ success: true, reconId, totalFound: foundSubs.length, aliveCount: aliveHosts.length, aliveHosts, rawSubdomains: foundSubs });
+        reconEmitter.emit('recon-progress', { status: 'completed', message: 'Tüm operasyon başarıyla tamamlandı!', done: true });
+        res.json({ success: true, reconId, totalFound: combinedSubs.length, aliveCount: aliveHosts.length, aliveHosts, rawSubdomains: combinedSubs });
 
     } catch (error) {
         console.error("[KRİTİK HATA] İstihbarat işlemi sonlandırılamadı:", error.message);
+        reconEmitter.emit('recon-progress', { status: 'error', message: 'Kritik hata oluştu!' });
         res.status(500).json({ error: "İstihbarat motoru işlemi tamamlayamadı." });
     }
 };
 
-module.exports = { startRecon };
+module.exports = { startRecon, streamReconProgress };
